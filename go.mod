@@ -1,6 +1,6 @@
 module github.com/paulstuart/yt-transcript
 
-go 1.25.4
+go 1.24.0
 
 require github.com/horiagug/youtube-transcript-api-go v0.0.13
 
