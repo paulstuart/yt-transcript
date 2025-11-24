@@ -103,6 +103,7 @@ func TestProcessTranscript(t *testing.T) {
 	}
 
 	// Validate index entries
+	// TODO: anything more to check?
 	for i, indexEntry := range result.Indexes {
 		// Check that timestamp is non-negative
 		if indexEntry.Timestamp < 0 {
@@ -113,130 +114,139 @@ func TestProcessTranscript(t *testing.T) {
 		if indexEntry.Offset < 0 {
 			t.Errorf("Index entry %d has negative offset: %d", i, indexEntry.Offset)
 		}
-
-		// Check that length matches text length
-		// if indexEntry. != len(indexEntry.Text) {
-		// 	t.Errorf("Index entry %d length mismatch: got %d, want %d",
-		// 		i, indexEntry.Length, len(indexEntry.Text))
-		// }
-
-		// Check that text at offset matches
-		// TODO: fix this?
-		// if indexEntry.Offset+indexEntry.Offset <= len(result.Text) {
-		// 	extractedText := result.Text[indexEntry.Offset : indexEntry.Offset+indexEntry.Length]
-		// 	if extractedText != indexEntry.Offset {
-		// 		t.Errorf("Index entry %d text mismatch at offset %d: got %q, want %q",
-		// 			i, indexEntry.Offset, extractedText, indexEntry.Text)
-		// 	}
-		// }
 	}
 
 	// Validate that smooshed text contains paragraph breaks
 	if !strings.Contains(result.Text, "\n\n") {
 		t.Log("Warning: ProcessTranscript() smooshed text has no paragraph breaks")
 	}
-
-	// Validate first and last entries are properly indexed
-	if len(result.Indexes) > 0 {
-		firstIndex := result.Indexes[0]
-		if firstIndex.Offset != 0 {
-			t.Errorf("First index entry offset = %d, want 0", firstIndex.Offset)
-		}
-
-		// TODO: re-enable this check after fixing length tracking
-		// lastIndex := result.Indexes[len(result.Indexes)-1]
-		// expectedEnd := lastIndex.Offset + lastIndex.Length
-		// if expectedEnd > len(result.Text) {
-		// 	t.Errorf("Last index entry extends beyond text: offset=%d, length=%d, text length=%d",
-		// 		lastIndex.Offset, lastIndex.Length, len(result.Text))
-		// }
-	}
 }
 
-// func TestProcessTranscript_EmptyTranscript(t *testing.T) {
-// 	ctx := context.Background()
-// 	channelID := "test-channel"
-// 	videoID := "test-video"
+// TestProcessTranscript_OffsetAlignment verifies that index offsets correctly align
+// with the original transcript entries in the smooshed text
+func TestProcessTranscript_OffsetAlignment(t *testing.T) {
+	transcript := loadTestTranscript(t)
 
-// 	// Test with empty transcript
-// 	emptyTranscript := &Transcript{
-// 		Language: "en",
-// 		Entries:  []TranscriptEntry{},
-// 	}
+	result, err := ProcessTranscript(transcript)
+	if err != nil {
+		t.Fatalf("ProcessTranscript() error = %v, want nil", err)
+	}
 
-// 	result, err := ProcessTranscript(ctx, channelID, videoID, emptyTranscript)
-// 	if err == nil {
-// 		t.Error("ProcessTranscript() with empty transcript should return error")
-// 	}
-// 	if result != nil {
-// 		t.Error("ProcessTranscript() with empty transcript should return nil result")
-// 	}
-// }
+	if result == nil {
+		t.Fatal("ProcessTranscript() returned nil result")
+	}
 
-// func TestProcessTranscript_EntriesWithEmptyText(t *testing.T) {
-// 	ctx := context.Background()
-// 	channelID := "test-channel"
-// 	videoID := "test-video"
+	// Validate we have the expected number of indexes
+	if len(result.Indexes) == 0 {
+		t.Fatal("ProcessTranscript() returned empty index")
+	}
 
-// 	// Test with transcript containing some empty text entries
-// 	transcript := &Transcript{
-// 		Language: "en",
-// 		Entries: []TranscriptEntry{
-// 			{Text: "First entry", Start: 0.0, Duration: 1.0},
-// 			{Text: "", Start: 1.0, Duration: 0.5}, // Empty text
-// 			{Text: "Second entry", Start: 1.5, Duration: 1.0},
-// 		},
-// 	}
+	// Create a map of timestamps to original transcript entries for quick lookup
+	timestampToEntry := make(map[float64]*TranscriptLine)
+	for i := range transcript.Lines {
+		entry := &transcript.Lines[i]
+		if entry.Text != "" {
+			timestampToEntry[entry.Start] = entry
+		}
+	}
 
-// 	result, err := ProcessTranscript(ctx, channelID, videoID, transcript)
-// 	if err != nil {
-// 		t.Fatalf("ProcessTranscript() error = %v, want nil", err)
-// 	}
+	// Track previous offset to ensure monotonically increasing
+	prevOffset := -1
 
-// 	// Should only have 2 index entries (empty text should be skipped)
-// 	if len(result.Index) != 2 {
-// 		t.Errorf("ProcessTranscript() index length = %d, want 2", len(result.Index))
-// 	}
+	for i, indexEntry := range result.Indexes {
+		// Validate offset is within bounds
+		if indexEntry.Offset < 0 {
+			t.Errorf("Index entry %d has negative offset: %d", i, indexEntry.Offset)
+			continue
+		}
+		if indexEntry.Offset >= len(result.Text) {
+			t.Errorf("Index entry %d offset %d exceeds text length %d",
+				i, indexEntry.Offset, len(result.Text))
+			continue
+		}
 
-// 	// Text should contain both non-empty entries
-// 	if !strings.Contains(result.Text, "First entry") {
-// 		t.Error("ProcessTranscript() smooshed text missing 'First entry'")
-// 	}
-// 	if !strings.Contains(result.Text, "Second entry") {
-// 		t.Error("ProcessTranscript() smooshed text missing 'Second entry'")
-// 	}
-// }
+		// Validate offsets are monotonically increasing (or equal for same position)
+		if indexEntry.Offset < prevOffset {
+			t.Errorf("Index entry %d offset %d is less than previous offset %d",
+				i, indexEntry.Offset, prevOffset)
+		}
+		prevOffset = indexEntry.Offset
 
-// func TestProcessTranscript_ParagraphBreaks(t *testing.T) {
-// 	ctx := context.Background()
-// 	channelID := "test-channel"
-// 	videoID := "test-video"
+		// Find the corresponding original transcript entry by timestamp
+		originalEntry, exists := timestampToEntry[indexEntry.Timestamp]
+		if !exists {
+			t.Errorf("Index entry %d has timestamp %.3f not found in original transcript",
+				i, indexEntry.Timestamp)
+			continue
+		}
 
-// 	// Test with transcript that should generate paragraph breaks
-// 	transcript := &Transcript{
-// 		Language: "en",
-// 		Entries: []TranscriptEntry{
-// 			{Text: "First sentence.", Start: 0.0, Duration: 2.0},
-// 			{Text: "Second sentence.", Start: 2.0, Duration: 2.0},
-// 			{Text: "Third sentence.", Start: 4.0, Duration: 2.0},
-// 			{Text: "Fourth sentence.", Start: 6.0, Duration: 2.0},
-// 		},
-// 	}
+		// Verify duration matches
+		if indexEntry.Duration != originalEntry.Duration {
+			t.Errorf("Index entry %d duration mismatch: got %.3f, want %.3f",
+				i, indexEntry.Duration, originalEntry.Duration)
+		}
 
-// 	result, err := ProcessTranscript(ctx, channelID, videoID, transcript)
-// 	if err != nil {
-// 		t.Fatalf("ProcessTranscript() error = %v, want nil", err)
-// 	}
+		// Extract text starting from the offset
+		remainingText := result.Text[indexEntry.Offset:]
 
-// 	// Should have paragraph breaks
-// 	if !strings.Contains(result.Text, "\n\n") {
-// 		t.Error("ProcessTranscript() should create paragraph breaks after sentences")
-// 	}
+		// The text at this offset should start with the original entry's text
+		// Account for potential Unicode characters by checking if it starts with the expected text
+		if !strings.HasPrefix(remainingText, originalEntry.Text) {
+			// Show context for debugging
+			contextLen := min(len(remainingText), len(originalEntry.Text)+50)
+			t.Errorf("Index entry %d (timestamp=%.3f, offset=%d): text mismatch\n"+
+				"  Expected to start with: %q\n"+
+				"  Actually starts with:   %q",
+				i, indexEntry.Timestamp, indexEntry.Offset,
+				originalEntry.Text,
+				remainingText[:contextLen])
+		}
 
-// 	// All text should be present
-// 	for _, entry := range transcript.Entries {
-// 		if !strings.Contains(result.Text, entry.Text) {
-// 			t.Errorf("ProcessTranscript() smooshed text missing: %q", entry.Text)
-// 		}
-// 	}
-// }
+		// Additional validation: if this is not the first entry,
+		// verify there's proper spacing/separator before this entry
+		if i > 0 && indexEntry.Offset > 0 {
+			// Check what precedes this entry (should be space or newline)
+			precedingChar := result.Text[indexEntry.Offset-1]
+			if precedingChar != ' ' && precedingChar != '\n' {
+				t.Errorf("Index entry %d at offset %d: expected space or newline before entry, got %q",
+					i, indexEntry.Offset, precedingChar)
+			}
+		}
+	}
+
+	// Validate that all text from original entries appears in smooshed text
+	// and that total smooshed length is reasonable
+	totalOriginalTextLen := 0
+	for _, entry := range transcript.Lines {
+		if entry.Text != "" {
+			totalOriginalTextLen += len(entry.Text)
+			if !strings.Contains(result.Text, entry.Text) {
+				t.Errorf("Smooshed text missing original entry: %q", entry.Text)
+			}
+		}
+	}
+
+	// The smooshed text should be longer than original (due to spaces/breaks)
+	// but not excessively longer
+	if len(result.Text) < totalOriginalTextLen {
+		t.Errorf("Smooshed text length %d is less than total original text length %d",
+			len(result.Text), totalOriginalTextLen)
+	}
+
+	// Calculate expected overhead: one separator per entry (space or \n\n)
+	maxExpectedLen := totalOriginalTextLen + (len(result.Indexes) * 2) // 2 chars max per separator
+	if len(result.Text) > maxExpectedLen {
+		t.Errorf("Smooshed text length %d exceeds reasonable maximum %d (might indicate duplication)",
+			len(result.Text), maxExpectedLen)
+	}
+
+	// Log some statistics for visibility
+	t.Logf("Validation successful:")
+	t.Logf("  - Original entries: %d", len(transcript.Lines))
+	t.Logf("  - Index entries: %d", len(result.Indexes))
+	t.Logf("  - Original text length: %d", totalOriginalTextLen)
+	t.Logf("  - Smooshed text length: %d", len(result.Text))
+	t.Logf("  - Overhead: %d bytes (%.1f%%)",
+		len(result.Text)-totalOriginalTextLen,
+		float64(len(result.Text)-totalOriginalTextLen)/float64(totalOriginalTextLen)*100)
+}

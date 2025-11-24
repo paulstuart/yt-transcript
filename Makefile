@@ -1,11 +1,14 @@
 
-.PHONY: build deadcode test
+.PHONY: build deadcode test lint
 
 build:
 	go build -o yttranscript ./cmd/yttranscript/...
 
 test:
 	go test -v ./...
+
+lint:
+	golangci-lint run ./...
 
 deadcode:
 	@#go tool golang.org/x/tools/cmd/deadcode -f='{{println .Path}}{{range .Funcs}}{{printf "\t%s\n" .Name}}{{end}}{{println}}' -test ./...
