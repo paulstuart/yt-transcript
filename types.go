@@ -57,7 +57,9 @@ type IndexEntry struct {
 
 // Smooshed represents the transcript text as a string
 // and includes indexed entries
+// This data is the whole point of this project -- to retrieve a plain text
+// transcript of a youtube video
 type Smooshed struct {
-	Text    string
-	Indexes []IndexEntry
+	Text    string       `json:"text"`
+	Indexes []IndexEntry `json:"indexes"`
 }

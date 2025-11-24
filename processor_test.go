@@ -60,11 +60,6 @@ func loadTestTranscript(t *testing.T) *TranscriptRaw {
 func TestProcessTranscript(t *testing.T) {
 	transcript := loadTestTranscript(t)
 
-	// Test with valid transcript
-	// ctx := context.Background()
-	// channelID := "test-channel-123"
-	// videoID := "test-video-456"
-
 	result, err := ProcessTranscript(transcript)
 	if err != nil {
 		t.Fatalf("ProcessTranscript() error = %v, want nil", err)
