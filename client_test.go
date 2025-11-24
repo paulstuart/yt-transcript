@@ -81,7 +81,7 @@ func TestExtractVideoID(t *testing.T) {
 func TestNewClient(t *testing.T) {
 	client := NewClient(DefaultTimeoutSeconds)
 	if client == nil {
-		t.Error("NewClient() returned nil")
+		t.Fatal("NewClient() returned nil")
 	}
 	if client.ytClient == nil {
 		t.Error("NewClient() did not initialize ytClient")

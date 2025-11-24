@@ -1,5 +1,5 @@
 
-.phony: build deadcode test
+.PHONY: build deadcode test
 
 build:
 	go build -o yttranscript ./cmd/yttranscript/...

@@ -11,7 +11,6 @@ type TranscriptInfo struct {
 }
 
 // TranscriptConfig holds configuration for fetching transcripts
-// TODO: if this is just Lang, consider removing the struct and passing Lang string directly
 type TranscriptConfig struct {
 	// Lang specifies the language code for the transcript (e.g., "en" for English)
 	// If empty, the first available language will be used
@@ -57,7 +56,7 @@ type IndexEntry struct {
 }
 
 // Smooshed represents the transcript text as a string
-// and includes index entries
+// and includes indexed entries
 type Smooshed struct {
 	Text    string
 	Indexes []IndexEntry
