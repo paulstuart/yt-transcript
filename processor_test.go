@@ -22,14 +22,12 @@ type testTranscriptJSON struct {
 func loadTestTranscript(t *testing.T) *TranscriptRaw {
 	t.Helper()
 
-	// Read the test transcript file
 	testDataPath := filepath.Join("testdata", "test_transcript.json")
 	data, err := os.ReadFile(testDataPath)
 	if err != nil {
 		t.Fatalf("Failed to read test transcript: %v", err)
 	}
 
-	// Unmarshal the JSON
 	var rawTranscripts []testTranscriptJSON
 	if err := json.Unmarshal(data, &rawTranscripts); err != nil {
 		t.Fatalf("Failed to unmarshal test transcript: %v", err)

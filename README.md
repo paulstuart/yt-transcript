@@ -2,6 +2,10 @@
 
 A Go library and CLI tool for fetching and processing YouTube video transcripts.
 
+This is effectively a wrapper around a github.com/horiagug/youtube-transcript-api-go,
+with the sole focus on returning text that is immediately useful, as youtube's transcript
+data is chunked in a way that make it challenging to work with as a full text document.
+
 ## Features
 
 - Fetch YouTube video transcripts by video ID or URL
