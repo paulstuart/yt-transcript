@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -86,12 +87,14 @@ func TestProcessTranscript(t *testing.T) {
 	}
 
 	// Validate that all text from entries appears in smooshed text
+	// Note: ProcessTranscript trims whitespace, so we check for trimmed text
 	for i, entry := range transcript.Lines {
-		if entry.Text == "" {
+		trimmed := strings.TrimSpace(entry.Text)
+		if trimmed == "" {
 			continue
 		}
-		if !strings.Contains(result.Text, entry.Text) {
-			t.Errorf("ProcessTranscript() smooshed text missing entry %d: %q", i, entry.Text)
+		if !strings.Contains(result.Text, trimmed) {
+			t.Errorf("ProcessTranscript() smooshed text missing entry %d: %q", i, trimmed)
 		}
 	}
 
@@ -182,16 +185,17 @@ func TestProcessTranscript_OffsetAlignment(t *testing.T) {
 		// Extract text starting from the offset
 		remainingText := result.Text[indexEntry.Offset:]
 
-		// The text at this offset should start with the original entry's text
-		// Account for potential Unicode characters by checking if it starts with the expected text
-		if !strings.HasPrefix(remainingText, originalEntry.Text) {
+		// The text at this offset should start with the original entry's text (trimmed)
+		// ProcessTranscript trims whitespace from entries
+		expectedText := strings.TrimSpace(originalEntry.Text)
+		if !strings.HasPrefix(remainingText, expectedText) {
 			// Show context for debugging
-			contextLen := min(len(remainingText), len(originalEntry.Text)+50)
+			contextLen := min(len(remainingText), len(expectedText)+50)
 			t.Errorf("Index entry %d (timestamp=%.3f, offset=%d): text mismatch\n"+
 				"  Expected to start with: %q\n"+
 				"  Actually starts with:   %q",
 				i, indexEntry.Timestamp, indexEntry.Offset,
-				originalEntry.Text,
+				expectedText,
 				remainingText[:contextLen])
 		}
 
@@ -209,12 +213,14 @@ func TestProcessTranscript_OffsetAlignment(t *testing.T) {
 
 	// Validate that all text from original entries appears in smooshed text
 	// and that total smooshed length is reasonable
+	// Note: ProcessTranscript trims whitespace, so we check/count trimmed text
 	totalOriginalTextLen := 0
 	for _, entry := range transcript.Lines {
-		if entry.Text != "" {
-			totalOriginalTextLen += len(entry.Text)
-			if !strings.Contains(result.Text, entry.Text) {
-				t.Errorf("Smooshed text missing original entry: %q", entry.Text)
+		trimmed := strings.TrimSpace(entry.Text)
+		if trimmed != "" {
+			totalOriginalTextLen += len(trimmed)
+			if !strings.Contains(result.Text, trimmed) {
+				t.Errorf("Smooshed text missing original entry: %q", trimmed)
 			}
 		}
 	}
@@ -242,4 +248,161 @@ func TestProcessTranscript_OffsetAlignment(t *testing.T) {
 	t.Logf("  - Overhead: %d bytes (%.1f%%)",
 		len(result.Text)-totalOriginalTextLen,
 		float64(len(result.Text)-totalOriginalTextLen)/float64(totalOriginalTextLen)*100)
+}
+
+// TestProcessTranscript_NoDoubleSpaces verifies that ProcessTranscript correctly
+// handles entries with leading/trailing whitespace and produces no double spaces.
+// Each timestamp should point to the exact start of its corresponding word in the output.
+func TestProcessTranscript_NoDoubleSpaces(t *testing.T) {
+	// Create test data with various whitespace issues
+	transcript := &TranscriptRaw{
+		Language: "en",
+		Lines: []TranscriptLine{
+			{Text: "Hello world", Start: 0.0, Duration: 1.0},        // normal
+			{Text: " Leading space", Start: 1.0, Duration: 1.0},     // leading space
+			{Text: "Trailing space ", Start: 2.0, Duration: 1.0},    // trailing space
+			{Text: " Both spaces ", Start: 3.0, Duration: 1.0},      // both
+			{Text: "  Double leading", Start: 4.0, Duration: 1.0},   // double leading
+			{Text: "Double trailing  ", Start: 5.0, Duration: 1.0},  // double trailing
+			{Text: "Normal again", Start: 6.0, Duration: 1.0},       // normal
+			{Text: "   ", Start: 7.0, Duration: 1.0},                // whitespace only (should skip)
+			{Text: "", Start: 8.0, Duration: 1.0},                   // empty (should skip)
+			{Text: "After empty.", Start: 9.0, Duration: 1.0},       // sentence end
+			{Text: "New sentence", Start: 10.0, Duration: 1.0},      // after sentence
+		},
+	}
+
+	result, err := ProcessTranscript(transcript)
+	if err != nil {
+		t.Fatalf("ProcessTranscript() error = %v", err)
+	}
+
+	// Check for double spaces - there should be none
+	doubleSpaceRegex := regexp.MustCompile(`  +`)
+	if matches := doubleSpaceRegex.FindAllStringIndex(result.Text, -1); len(matches) > 0 {
+		for _, m := range matches {
+			start := m[0] - 20
+			if start < 0 {
+				start = 0
+			}
+			end := m[1] + 20
+			if end > len(result.Text) {
+				end = len(result.Text)
+			}
+			t.Errorf("Found double space at position %d, context: %q", m[0], result.Text[start:end])
+		}
+	}
+
+	// Check that whitespace-only and empty entries were skipped
+	expectedEntries := 9 // 11 total - 2 skipped (whitespace-only and empty)
+	if len(result.Indexes) != expectedEntries {
+		t.Errorf("Expected %d index entries (skipping empty/whitespace), got %d",
+			expectedEntries, len(result.Indexes))
+	}
+
+	// Verify each timestamp points to the correct trimmed word
+	expectedTexts := []string{
+		"Hello world",
+		"Leading space",
+		"Trailing space",
+		"Both spaces",
+		"Double leading",
+		"Double trailing",
+		"Normal again",
+		"After empty.",
+		"New sentence",
+	}
+
+	for i, idx := range result.Indexes {
+		if i >= len(expectedTexts) {
+			break
+		}
+
+		remaining := result.Text[idx.Offset:]
+		if !strings.HasPrefix(remaining, expectedTexts[i]) {
+			contextLen := min(len(remaining), 50)
+			t.Errorf("Index %d (timestamp=%.1f, offset=%d): expected %q, got %q",
+				i, idx.Timestamp, idx.Offset, expectedTexts[i], remaining[:contextLen])
+		}
+	}
+
+	t.Logf("Output text: %q", result.Text)
+}
+
+// TestProcessTranscript_WordAlignment validates that each index entry correctly
+// points to the first word of its corresponding transcript chunk.
+func TestProcessTranscript_WordAlignment(t *testing.T) {
+	transcript := loadTestTranscript(t)
+
+	result, err := ProcessTranscript(transcript)
+	if err != nil {
+		t.Fatalf("ProcessTranscript() error = %v", err)
+	}
+
+	// Build a map from timestamp to expected (trimmed) text
+	timestampToText := make(map[float64]string)
+	for _, line := range transcript.Lines {
+		trimmed := strings.TrimSpace(line.Text)
+		if trimmed != "" {
+			timestampToText[line.Start] = trimmed
+		}
+	}
+
+	// Verify each index entry points to the correct word
+	for i, idx := range result.Indexes {
+		expectedText, exists := timestampToText[idx.Timestamp]
+		if !exists {
+			t.Errorf("Index %d: timestamp %.3f not found in original transcript", i, idx.Timestamp)
+			continue
+		}
+
+		// Verify offset is valid
+		if idx.Offset < 0 || idx.Offset >= len(result.Text) {
+			t.Errorf("Index %d: offset %d out of bounds [0, %d)", i, idx.Offset, len(result.Text))
+			continue
+		}
+
+		// Get the text starting at this offset
+		remaining := result.Text[idx.Offset:]
+
+		// The text should start with the expected (trimmed) text
+		if !strings.HasPrefix(remaining, expectedText) {
+			contextLen := min(len(remaining), len(expectedText)+30)
+			t.Errorf("Index %d (timestamp=%.3f, offset=%d):\n"+
+				"  Expected to start with: %q\n"+
+				"  Actually starts with:   %q",
+				i, idx.Timestamp, idx.Offset, expectedText, remaining[:contextLen])
+		}
+
+		// Verify the first word matches
+		// Extract first word from expected text
+		expectedWords := strings.Fields(expectedText)
+		if len(expectedWords) > 0 {
+			firstExpectedWord := expectedWords[0]
+			actualWords := strings.Fields(remaining[:min(len(remaining), len(expectedText)+50)])
+			if len(actualWords) > 0 {
+				if actualWords[0] != firstExpectedWord {
+					t.Errorf("Index %d (timestamp=%.3f): first word mismatch, expected %q, got %q",
+						i, idx.Timestamp, firstExpectedWord, actualWords[0])
+				}
+			}
+		}
+	}
+
+	// Additional check: no double spaces anywhere in the output
+	doubleSpaceRegex := regexp.MustCompile(`  +`)
+	if matches := doubleSpaceRegex.FindAllStringIndex(result.Text, -1); len(matches) > 0 {
+		t.Errorf("Found %d instances of double spaces in output", len(matches))
+		for i, m := range matches {
+			if i >= 5 {
+				t.Logf("... and %d more", len(matches)-5)
+				break
+			}
+			start := max(0, m[0]-20)
+			end := min(len(result.Text), m[1]+20)
+			t.Logf("  Position %d: %q", m[0], result.Text[start:end])
+		}
+	}
+
+	t.Logf("Word alignment validation passed for %d entries", len(result.Indexes))
 }

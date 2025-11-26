@@ -14,14 +14,14 @@ func ProcessTranscript(transcript *TranscriptRaw) (*Smooshed, error) {
 
 	// Create smooshed text version and index
 	var textBuilder strings.Builder
-	var index []IndexEntry
+	var index = make([]IndexEntry, 0, len(transcript.Lines))
 
 	currentOffset := 0
 	var prevEntry *TranscriptLine
 	sentenceCount := 0 // Track sentences for paragraph breaks
 
 	for i, entry := range transcript.Lines {
-		text := entry.Text
+		text := strings.TrimSpace(entry.Text)
 		if text == "" {
 			continue
 		}
@@ -31,11 +31,12 @@ func ProcessTranscript(transcript *TranscriptRaw) (*Smooshed, error) {
 			addParagraphBreak := false
 
 			// Check if previous entry ended with sentence-ending punctuation
+			// Use trimmed text since original may have trailing whitespace
 			if prevEntry != nil {
-				prevText := strings.TrimSpace(prevEntry.Text)
-				if strings.HasSuffix(prevText, ".") ||
-					strings.HasSuffix(prevText, "?") ||
-					strings.HasSuffix(prevText, "!") {
+				prevTrimmed := strings.TrimSpace(prevEntry.Text)
+				if strings.HasSuffix(prevTrimmed, ".") ||
+					strings.HasSuffix(prevTrimmed, "?") ||
+					strings.HasSuffix(prevTrimmed, "!") {
 
 					sentenceCount++
 
