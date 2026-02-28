@@ -158,9 +158,6 @@ func TestFetchTranscript_Integration(t *testing.T) {
 					if segment.Offset < 0 {
 						t.Errorf("Transcript segment %d has negative offset", i)
 					}
-					if segment.Duration < 0 {
-						t.Errorf("Transcript segment %d has negative duration", i)
-					}
 				}
 			}
 		})

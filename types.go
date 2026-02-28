@@ -49,8 +49,6 @@ type TranscriptEntry struct {
 type IndexEntry struct {
 	// Timestamp is the start time in seconds for this segment
 	Timestamp float64 `json:"timestamp"`
-	// Duration of the segment source
-	Duration float64 `json:"duration"`
 	// Offset is the byte offset into the smooshed text at the Timestamp
 	Offset int `json:"offset"`
 }

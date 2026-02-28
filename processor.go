@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+var ParagraphGap = 3.0 // seconds to consider a gap in transcript as a new paragraph
+
 // ProcessTranscript converts Youtube's chunky transcript into a smooshed text version with an index.
 func ProcessTranscript(transcript *TranscriptRaw) (*Smooshed, error) {
 	// Check if transcript is empty (no captions available)
@@ -17,10 +19,11 @@ func ProcessTranscript(transcript *TranscriptRaw) (*Smooshed, error) {
 	var index = make([]IndexEntry, 0, len(transcript.Lines))
 
 	currentOffset := 0
-	var prevEntry *TranscriptLine
+	var prevStart float64
+	endOfSentence := false
 	sentenceCount := 0 // Track sentences for paragraph breaks
 
-	for i, entry := range transcript.Lines {
+	for _, entry := range transcript.Lines {
 		text := strings.TrimSpace(entry.Text)
 		if text == "" {
 			continue
@@ -31,31 +34,23 @@ func ProcessTranscript(transcript *TranscriptRaw) (*Smooshed, error) {
 			addParagraphBreak := false
 
 			// Check if previous entry ended with sentence-ending punctuation
-			// Use trimmed text since original may have trailing whitespace
-			if prevEntry != nil {
-				prevTrimmed := strings.TrimSpace(prevEntry.Text)
-				if strings.HasSuffix(prevTrimmed, ".") ||
-					strings.HasSuffix(prevTrimmed, "?") ||
-					strings.HasSuffix(prevTrimmed, "!") {
+			if endOfSentence {
+				sentenceCount++
 
-					sentenceCount++
+				// Check for timing gaps between segment starts
+				gap := entry.Start - prevStart
+				if gap < 0 {
+					gap = 0
+				}
 
-					// Strategy 1: Check for timing gaps (rare but meaningful when they exist)
-					prevEnd := prevEntry.Start + prevEntry.Duration
-					gap := entry.Start - prevEnd
-					if gap < 0 {
-						gap = 0
-					}
-
-					// If there's a gap > 0.5 seconds, treat as paragraph break
-					if gap > 0.5 {
-						addParagraphBreak = true
-					} else if sentenceCount >= 2 {
-						// Strategy 2: Add paragraph break every 2-3 sentences
-						// This creates readable paragraphs even without timing gaps
-						addParagraphBreak = true
-						sentenceCount = 0
-					}
+				// If there's a significant gap, treat as paragraph break
+				if gap > ParagraphGap {
+					addParagraphBreak = true
+				} else if sentenceCount >= 2 {
+					// Add paragraph break every 2-3 sentences
+					// This creates readable paragraphs even without timing gaps
+					addParagraphBreak = true
+					sentenceCount = 0
 				}
 			}
 
@@ -68,18 +63,19 @@ func ProcessTranscript(transcript *TranscriptRaw) (*Smooshed, error) {
 			}
 		}
 
-		// Record index entry
 		index = append(index, IndexEntry{
 			Timestamp: entry.Start,
-			Duration:  entry.Duration,
 			Offset:    currentOffset,
 		})
 
-		// Write text
 		textBuilder.WriteString(text)
 		currentOffset += len(text)
 
-		prevEntry = &transcript.Lines[i]
+		// Track state for next iteration using already-trimmed text
+		endOfSentence = strings.HasSuffix(text, ".") ||
+			strings.HasSuffix(text, "?") ||
+			strings.HasSuffix(text, "!")
+		prevStart = entry.Start
 	}
 
 	smsh := &Smooshed{

@@ -176,12 +176,6 @@ func TestProcessTranscript_OffsetAlignment(t *testing.T) {
 			continue
 		}
 
-		// Verify duration matches
-		if indexEntry.Duration != originalEntry.Duration {
-			t.Errorf("Index entry %d duration mismatch: got %.3f, want %.3f",
-				i, indexEntry.Duration, originalEntry.Duration)
-		}
-
 		// Extract text starting from the offset
 		remainingText := result.Text[indexEntry.Offset:]
 
@@ -258,17 +252,17 @@ func TestProcessTranscript_NoDoubleSpaces(t *testing.T) {
 	transcript := &TranscriptRaw{
 		Language: "en",
 		Lines: []TranscriptLine{
-			{Text: "Hello world", Start: 0.0, Duration: 1.0},        // normal
-			{Text: " Leading space", Start: 1.0, Duration: 1.0},     // leading space
-			{Text: "Trailing space ", Start: 2.0, Duration: 1.0},    // trailing space
-			{Text: " Both spaces ", Start: 3.0, Duration: 1.0},      // both
-			{Text: "  Double leading", Start: 4.0, Duration: 1.0},   // double leading
-			{Text: "Double trailing  ", Start: 5.0, Duration: 1.0},  // double trailing
-			{Text: "Normal again", Start: 6.0, Duration: 1.0},       // normal
-			{Text: "   ", Start: 7.0, Duration: 1.0},                // whitespace only (should skip)
-			{Text: "", Start: 8.0, Duration: 1.0},                   // empty (should skip)
-			{Text: "After empty.", Start: 9.0, Duration: 1.0},       // sentence end
-			{Text: "New sentence", Start: 10.0, Duration: 1.0},      // after sentence
+			{Text: "Hello world", Start: 0.0, Duration: 1.0},       // normal
+			{Text: " Leading space", Start: 1.0, Duration: 1.0},    // leading space
+			{Text: "Trailing space ", Start: 2.0, Duration: 1.0},   // trailing space
+			{Text: " Both spaces ", Start: 3.0, Duration: 1.0},     // both
+			{Text: "  Double leading", Start: 4.0, Duration: 1.0},  // double leading
+			{Text: "Double trailing  ", Start: 5.0, Duration: 1.0}, // double trailing
+			{Text: "Normal again", Start: 6.0, Duration: 1.0},      // normal
+			{Text: "   ", Start: 7.0, Duration: 1.0},               // whitespace only (should skip)
+			{Text: "", Start: 8.0, Duration: 1.0},                  // empty (should skip)
+			{Text: "After empty.", Start: 9.0, Duration: 1.0},      // sentence end
+			{Text: "New sentence", Start: 10.0, Duration: 1.0},     // after sentence
 		},
 	}
 
