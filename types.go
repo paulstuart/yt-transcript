@@ -1,5 +1,23 @@
 package yttranscript
 
+// TranscriptRaw is the raw transcript data for a video.
+type TranscriptRaw struct {
+	VideoID        string
+	VideoTitle     string
+	Language       string
+	LanguageCode   string
+	IsGenerated    bool
+	IsTranslatable bool
+	Lines          []TranscriptLine
+}
+
+// TranscriptLine is a single timed segment of a transcript.
+type TranscriptLine struct {
+	Text     string  `json:"text"`
+	Start    float64 `json:"start"`
+	Duration float64 `json:"duration"`
+}
+
 // TranscriptInfo represents the metadata comprising TranscriptRaw
 type TranscriptInfo struct {
 	VideoID        string

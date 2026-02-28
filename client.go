@@ -1,127 +1,149 @@
 package yttranscript
 
 import (
+	"context"
 	"fmt"
 	"strings"
-
-	"github.com/horiagug/youtube-transcript-api-go/pkg/yt_transcript"
-	models "github.com/horiagug/youtube-transcript-api-go/pkg/yt_transcript_models"
+	"time"
 )
 
-type TranscriptRaw = models.Transcript
-type TranscriptLine = models.TranscriptLine
-
-// Client provides methods to fetch YouTube transcripts
+// Client provides methods to fetch YouTube transcripts.
 type Client struct {
-	ytClient *yt_transcript.YtTranscriptClient
+	timeout time.Duration
 }
 
-// NewClient creates a new YouTube transcript client
+// NewClient creates a new YouTube transcript client.
+// timeoutSeconds is applied per-request.
 func NewClient(timeoutSeconds int) *Client {
-	// Create the underlying YouTube transcript API client
-	// Using default options (JSON formatter without timestamps for raw data)
-	ytClient := yt_transcript.NewClient(yt_transcript.WithTimeout(timeoutSeconds))
-
 	return &Client{
-		ytClient: ytClient,
+		timeout: time.Duration(timeoutSeconds) * time.Second,
 	}
 }
 
-// FetchRawTranscript fetches the transcript for a given YouTube video
-// videoID can be either a full YouTube URL or just the video ID
-// config can be nil to use default settings (first available language)
+// FetchRawTranscript fetches the raw transcript for a YouTube video.
+// videoID may be a full URL or an 11-character video ID.
+// config may be nil to use defaults (English, first available).
 func (c *Client) FetchRawTranscript(videoID string, config *TranscriptConfig) (*TranscriptRaw, error) {
-	// Extract the actual video ID if a URL was provided
 	vid, err := extractVideoID(videoID)
 	if err != nil {
 		return nil, fmt.Errorf("extract video ID: %w", err)
 	}
 
-	// Set language preference if specified
-	languages := []string{"en"} // default to English
+	lang := "en"
 	if config != nil && config.Lang != "" {
-		languages = []string{config.Lang}
+		lang = config.Lang
 	}
 
-	// Fetch the transcript using the library
-	// The library returns a slice of Transcript objects (one per language)
-	transcripts, err := c.ytClient.GetTranscripts(vid, languages)
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+
+	pageHTML, err := fetchVideoPage(ctx, vid)
 	if err != nil {
-		return nil, fmt.Errorf("fetch transcript for video %s: %w", vid, err)
+		return nil, fmt.Errorf("fetch video page for %s: %w", vid, err)
 	}
 
-	if len(transcripts) == 0 {
-		return nil, fmt.Errorf("no transcripts available for video %s", vid)
+	apiKey, err := extractInnertubeKey(pageHTML)
+	if err != nil {
+		return nil, fmt.Errorf("extract innertube key for %s: %w", vid, err)
 	}
 
-	// Use the first transcript (the one in the requested language)
-	transcript := transcripts[0]
-	return &transcript, nil
+	tracks, err := fetchCaptionTracks(ctx, vid, apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("fetch caption tracks for %s: %w", vid, err)
+	}
+
+	track, err := selectTrack(tracks, lang)
+	if err != nil {
+		return nil, fmt.Errorf("select track for %s lang=%s: %w", vid, lang, err)
+	}
+
+	xmlStr, err := fetchTranscriptXML(ctx, vid, track.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch transcript XML for %s: %w", vid, err)
+	}
+
+	lines, err := parseTranscriptXML(xmlStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse transcript for %s: %w", vid, err)
+	}
+
+	return &TranscriptRaw{
+		VideoID:        vid,
+		Language:       track.Name,
+		LanguageCode:   track.LanguageCode,
+		IsGenerated:    track.IsGenerated,
+		IsTranslatable: track.IsTranslatable,
+		Lines:          lines,
+	}, nil
 }
 
-// FetchTranscript fetches the transcript for a given YouTube video
-// videoID can be either a full YouTube URL or just the video ID
-// config can be nil to use default settings (first available language)
+// FetchTranscript fetches and smooshes the transcript for a YouTube video.
 func (c *Client) FetchTranscript(videoID string, config *TranscriptConfig) (*TranscriptResult, error) {
-	// Extract the actual video ID if a URL was provided
-
-	trans, err := c.FetchRawTranscript(videoID, config)
+	raw, err := c.FetchRawTranscript(videoID, config)
 	if err != nil {
 		return nil, fmt.Errorf("fetch raw transcript: %w", err)
 	}
-	smsh, err := ProcessTranscript(trans)
+	smsh, err := ProcessTranscript(raw)
 	if err != nil {
-		return nil, fmt.Errorf("process transcript for video %s: %w", videoID, err)
+		return nil, fmt.Errorf("process transcript for %s: %w", videoID, err)
 	}
-
-	result := &TranscriptResult{
-		Info:     GetInfo(trans),
+	return &TranscriptResult{
+		Info:     GetInfo(raw),
 		Smooshed: smsh,
-	}
-	return result, nil
+	}, nil
 }
 
-// extractVideoID extracts the video ID from a YouTube URL or returns the ID if already provided
-// Supports formats like:
-//   - Full URL: https://www.youtube.com/watch?v=VIDEO_ID
-//   - Short URL: https://youtu.be/VIDEO_ID
-//   - Just the ID: VIDEO_ID (11 characters)
+// selectTrack picks the best caption track for the given language code.
+// Preference: exact non-generated match → exact generated match → prefix match → first available.
+func selectTrack(tracks []captionTrack, lang string) (captionTrack, error) {
+	if len(tracks) == 0 {
+		return captionTrack{}, fmt.Errorf("no caption tracks available")
+	}
+
+	for _, t := range tracks {
+		if t.LanguageCode == lang && !t.IsGenerated {
+			return t, nil
+		}
+	}
+	for _, t := range tracks {
+		if t.LanguageCode == lang {
+			return t, nil
+		}
+	}
+	for _, t := range tracks {
+		if strings.HasPrefix(t.LanguageCode, lang) {
+			return t, nil
+		}
+	}
+	return tracks[0], nil
+}
+
+// extractVideoID extracts the 11-character video ID from a URL or returns the
+// ID directly if it is already in that form.
 func extractVideoID(input string) (string, error) {
-	// If it's already an 11-character ID, return it
-	if len(input) == 11 && !strings.Contains(input, "/") && !strings.Contains(input, "?") {
+	if len(input) == 11 && !strings.ContainsAny(input, "/?") {
 		return input, nil
 	}
-
-	// Try to extract from URL
-	// Handle youtube.com URLs with v= parameter
 	if idx := strings.Index(input, "v="); idx != -1 {
-		start := idx + 2
-		end := start + 11
-		if end <= len(input) {
-			// Extract the 11-character ID
-			videoID := input[start:end]
-			// Remove any trailing query parameters or fragments
-			if idx := strings.IndexAny(videoID, "&?#"); idx != -1 {
-				videoID = videoID[:idx]
-			}
-			return videoID, nil
+		id := input[idx+2:]
+		if len(id) >= 11 {
+			id = id[:11]
+		}
+		if i := strings.IndexAny(id, "&?#"); i != -1 {
+			id = id[:i]
+		}
+		if len(id) == 11 {
+			return id, nil
 		}
 	}
-
-	// Handle youtu.be short URLs
-	if strings.Contains(input, "youtu.be/") {
-		parts := strings.Split(input, "youtu.be/")
-		if len(parts) >= 2 {
-			videoID := parts[1]
-			// Remove any query parameters or fragments
-			if idx := strings.IndexAny(videoID, "?&#/"); idx != -1 {
-				videoID = videoID[:idx]
-			}
-			if len(videoID) == 11 {
-				return videoID, nil
-			}
+	if i := strings.Index(input, "youtu.be/"); i != -1 {
+		id := input[i+9:]
+		if j := strings.IndexAny(id, "?&#/"); j != -1 {
+			id = id[:j]
+		}
+		if len(id) == 11 {
+			return id, nil
 		}
 	}
-
 	return "", fmt.Errorf("unable to extract video ID from: %s", input)
 }

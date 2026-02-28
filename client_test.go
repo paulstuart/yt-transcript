@@ -83,9 +83,6 @@ func TestNewClient(t *testing.T) {
 	if client == nil {
 		t.Fatal("NewClient() returned nil")
 	}
-	if client.ytClient == nil {
-		t.Error("NewClient() did not initialize ytClient")
-	}
 }
 
 // TestFetchTranscript_Integration is an integration test that requires internet connectivity
