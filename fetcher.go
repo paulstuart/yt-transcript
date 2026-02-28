@@ -1,0 +1,226 @@
+package yttranscript
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"encoding/xml"
+	"fmt"
+	"html"
+	"io"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+)
+
+const (
+	userAgent   = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	videoBaseURL = "https://www.youtube.com/watch?v=%s"
+	innertubeURL = "https://www.youtube.com/youtubei/v1/player"
+)
+
+var (
+	apiKeyRegex = regexp.MustCompile(`"INNERTUBE_API_KEY":\s*"([a-zA-Z0-9_-]+)"`)
+	httpClient  = &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        10,
+			MaxIdleConnsPerHost: 5,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+)
+
+// captionTrack represents a single caption track from the Innertube response.
+type captionTrack struct {
+	BaseURL        string
+	LanguageCode   string
+	Name           string
+	IsGenerated    bool
+	IsTranslatable bool
+}
+
+// fetchVideoPage fetches the YouTube video page and returns the HTML body.
+func fetchVideoPage(ctx context.Context, videoID string) (string, error) {
+	url := fmt.Sprintf(videoBaseURL, videoID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch page: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetch page: HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read page body: %w", err)
+	}
+	return string(body), nil
+}
+
+// extractInnertubeKey extracts the INNERTUBE_API_KEY from page HTML.
+func extractInnertubeKey(pageHTML string) (string, error) {
+	m := apiKeyRegex.FindStringSubmatch(pageHTML)
+	if len(m) < 2 {
+		return "", fmt.Errorf("INNERTUBE_API_KEY not found in page")
+	}
+	return m[1], nil
+}
+
+// fetchCaptionTracks calls the Innertube player API and returns available caption tracks.
+func fetchCaptionTracks(ctx context.Context, videoID, apiKey string) ([]captionTrack, error) {
+	payload := map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName":    "ANDROID",
+				"clientVersion": "19.09.37",
+				"androidSdkVersion": 30,
+				"hl":            "en",
+				"gl":            "US",
+			},
+		},
+		"videoId": videoID,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal payload: %w", err)
+	}
+
+	url := innertubeURL
+	if apiKey != "" {
+		url += "?key=" + apiKey
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("innertube request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("innertube request: HTTP %d", resp.StatusCode)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read innertube response: %w", err)
+	}
+
+	var data struct {
+		Captions struct {
+			PlayerCaptionsTracklistRenderer struct {
+				CaptionTracks []struct {
+					BaseURL      string `json:"baseUrl"`
+					LanguageCode string `json:"languageCode"`
+					Name         struct {
+						SimpleText string `json:"simpleText"`
+					} `json:"name"`
+					Kind           string `json:"kind"`
+					IsTranslatable bool   `json:"isTranslatable"`
+				} `json:"captionTracks"`
+			} `json:"playerCaptionsTracklistRenderer"`
+		} `json:"captions"`
+	}
+
+	if err := json.Unmarshal(respBody, &data); err != nil {
+		return nil, fmt.Errorf("parse innertube response: %w", err)
+	}
+
+	raw := data.Captions.PlayerCaptionsTracklistRenderer.CaptionTracks
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("no caption tracks found for video %s", videoID)
+	}
+
+	tracks := make([]captionTrack, len(raw))
+	for i, t := range raw {
+		tracks[i] = captionTrack{
+			BaseURL:        t.BaseURL,
+			LanguageCode:   t.LanguageCode,
+			Name:           t.Name.SimpleText,
+			IsGenerated:    t.Kind == "asr",
+			IsTranslatable: t.IsTranslatable,
+		}
+	}
+	return tracks, nil
+}
+
+// fetchTranscriptXML fetches the transcript XML for a caption track URL.
+func fetchTranscriptXML(ctx context.Context, videoID, trackURL string) (string, error) {
+	trackURL = strings.Replace(trackURL, "&fmt=srv3", "", 1)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, trackURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Referer", fmt.Sprintf(videoBaseURL, videoID))
+	req.Header.Set("Origin", "https://www.youtube.com")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch transcript XML: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetch transcript XML: HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read transcript XML: %w", err)
+	}
+	return string(body), nil
+}
+
+// xmlText is used for XML parsing of <text start="..." dur="...">...</text> elements.
+type xmlText struct {
+	XMLName  xml.Name `xml:"text"`
+	Start    float64  `xml:"start,attr"`
+	Duration float64  `xml:"dur,attr"`
+	Text     string   `xml:",chardata"`
+}
+
+// parseTranscriptXML parses YouTube's transcript XML into TranscriptLine entries.
+func parseTranscriptXML(xmlStr string) ([]TranscriptLine, error) {
+	type transcript struct {
+		Texts []xmlText `xml:"text"`
+	}
+
+	var t transcript
+	if err := xml.Unmarshal([]byte(xmlStr), &t); err != nil {
+		return nil, fmt.Errorf("parse transcript XML: %w", err)
+	}
+
+	lines := make([]TranscriptLine, 0, len(t.Texts))
+	for _, x := range t.Texts {
+		text := strings.TrimSpace(html.UnescapeString(x.Text))
+		if text == "" {
+			continue
+		}
+		lines = append(lines, TranscriptLine{
+			Text:     text,
+			Start:    x.Start,
+			Duration: x.Duration,
+		})
+	}
+	return lines, nil
+}
