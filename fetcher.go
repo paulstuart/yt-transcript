@@ -78,15 +78,23 @@ func extractInnertubeKey(pageHTML string) (string, error) {
 }
 
 // fetchCaptionTracks calls the Innertube player API and returns available caption tracks.
+// The ANDROID_VR client is used because it returns caption URLs without the exp=xpe
+// experiment flag in their sparams. That flag enables po_token enforcement on the
+// timedtext server, causing it to silently return an empty 200 response for
+// non-browser requests. ANDROID_VR is exempt from this enforcement.
 func fetchCaptionTracks(ctx context.Context, videoID, apiKey string) ([]captionTrack, error) {
 	payload := map[string]any{
 		"context": map[string]any{
 			"client": map[string]any{
-				"clientName":    "ANDROID",
-				"clientVersion": "19.09.37",
-				"androidSdkVersion": 30,
-				"hl":            "en",
-				"gl":            "US",
+				"clientName":        "ANDROID_VR",
+				"clientVersion":     "1.57.29",
+				"deviceMake":        "Oculus",
+				"deviceModel":       "Quest 3",
+				"androidSdkVersion": 32,
+				"osName":            "Android",
+				"osVersion":         "12L",
+				"hl":                "en",
+				"gl":                "US",
 			},
 		},
 		"videoId": videoID,
@@ -106,7 +114,9 @@ func fetchCaptionTracks(ctx context.Context, videoID, apiKey string) ([]captionT
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", "com.google.android.apps.youtube.vr.oculus/1.57.29 (Linux; U; Android 12L; eureka-user Build/SP2A.210812.015) gzip")
+	req.Header.Set("X-YouTube-Client-Name", "56")
+	req.Header.Set("X-YouTube-Client-Version", "1.57.29")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
