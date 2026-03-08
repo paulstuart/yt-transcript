@@ -21,8 +21,9 @@ const (
 )
 
 var (
-	apiKeyRegex = regexp.MustCompile(`"INNERTUBE_API_KEY":\s*"([a-zA-Z0-9_-]+)"`)
-	httpClient  = &http.Client{
+	apiKeyRegex     = regexp.MustCompile(`"INNERTUBE_API_KEY":\s*"([a-zA-Z0-9_-]+)"`)
+	visitorDataRegex = regexp.MustCompile(`"visitorData":"([^"]+)"`)
+	httpClient      = &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			MaxIdleConns:        10,
@@ -77,25 +78,39 @@ func extractInnertubeKey(pageHTML string) (string, error) {
 	return m[1], nil
 }
 
+// extractVisitorData extracts the visitorData session identifier from page HTML.
+// Returns empty string if not found; this value is optional.
+func extractVisitorData(pageHTML string) string {
+	m := visitorDataRegex.FindStringSubmatch(pageHTML)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
 // fetchCaptionTracks calls the Innertube player API and returns available caption tracks.
 // The ANDROID_VR client is used because it returns caption URLs without the exp=xpe
 // experiment flag in their sparams. That flag enables po_token enforcement on the
 // timedtext server, causing it to silently return an empty 200 response for
 // non-browser requests. ANDROID_VR is exempt from this enforcement.
-func fetchCaptionTracks(ctx context.Context, videoID, apiKey string) ([]captionTrack, error) {
+func fetchCaptionTracks(ctx context.Context, videoID, apiKey, visitorData string) ([]captionTrack, error) {
+	client := map[string]any{
+		"clientName":        "ANDROID_VR",
+		"clientVersion":     "1.57.29",
+		"deviceMake":        "Oculus",
+		"deviceModel":       "Quest 3",
+		"androidSdkVersion": 32,
+		"osName":            "Android",
+		"osVersion":         "12L",
+		"hl":                "en",
+		"gl":                "US",
+	}
+	if visitorData != "" {
+		client["visitorData"] = visitorData
+	}
 	payload := map[string]any{
 		"context": map[string]any{
-			"client": map[string]any{
-				"clientName":        "ANDROID_VR",
-				"clientVersion":     "1.57.29",
-				"deviceMake":        "Oculus",
-				"deviceModel":       "Quest 3",
-				"androidSdkVersion": 32,
-				"osName":            "Android",
-				"osVersion":         "12L",
-				"hl":                "en",
-				"gl":                "US",
-			},
+			"client": client,
 		},
 		"videoId": videoID,
 	}

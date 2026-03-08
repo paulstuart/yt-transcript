@@ -47,7 +47,9 @@ func (c *Client) FetchRawTranscript(videoID string, config *TranscriptConfig) (*
 		return nil, fmt.Errorf("extract innertube key for %s: %w", vid, err)
 	}
 
-	tracks, err := fetchCaptionTracks(ctx, vid, apiKey)
+	visitorData := extractVisitorData(pageHTML)
+
+	tracks, err := fetchCaptionTracks(ctx, vid, apiKey, visitorData)
 	if err != nil {
 		return nil, fmt.Errorf("fetch caption tracks for %s: %w", vid, err)
 	}
