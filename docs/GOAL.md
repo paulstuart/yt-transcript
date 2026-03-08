@@ -19,3 +19,5 @@ This repo is only about capturing the transcript from a specific YT video. More 
 * A transcript digester: stores all transcripts with associated metadata, summarizes them, generates keywords for all of them, and then gathers them all into a database for further analysis (likely sqlite w/ FTS and vector embedding)
 * A UI for the digester that allows browsing and interacting with the results
 * A meta agent that analyzes all of the captured info and analysis and acts as the personal assistant to the user to share with the user only the inforation they want and should be paying attention to.
+
+NOTE: all of this is basically the goal for the github.com/paulstuart/healthweb project -- but it was too unwieldy and we want to try again following the strategy laid out here.
