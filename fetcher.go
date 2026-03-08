@@ -9,21 +9,23 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/http/httputil"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 )
 
 const (
-	userAgent   = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	userAgent    = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 	videoBaseURL = "https://www.youtube.com/watch?v=%s"
 	innertubeURL = "https://www.youtube.com/youtubei/v1/player"
 )
 
 var (
-	apiKeyRegex     = regexp.MustCompile(`"INNERTUBE_API_KEY":\s*"([a-zA-Z0-9_-]+)"`)
+	apiKeyRegex      = regexp.MustCompile(`"INNERTUBE_API_KEY":\s*"([a-zA-Z0-9_-]+)"`)
 	visitorDataRegex = regexp.MustCompile(`"visitorData":"([^"]+)"`)
-	httpClient      = &http.Client{
+	httpClient       = &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			MaxIdleConns:        10,
@@ -32,6 +34,31 @@ var (
 		},
 	}
 )
+
+func init() {
+	if os.Getenv("YTT_DEBUG") == "1" {
+		httpClient.Transport = &logTransport{Transport: httpClient.Transport}
+	}
+}
+
+// logTransport wraps an http.RoundTripper to log requests and responses.
+type logTransport struct {
+	Transport http.RoundTripper
+}
+
+func (l *logTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	dumpReq, _ := httputil.DumpRequestOut(req, true)
+	fmt.Fprintf(os.Stderr, "--- Request ---\n%s\n", dumpReq)
+
+	resp, err := l.Transport.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	dumpResp, _ := httputil.DumpResponse(resp, true)
+	fmt.Fprintf(os.Stderr, "--- Response ---\n%s\n", dumpResp)
+	return resp, nil
+}
 
 // captionTrack represents a single caption track from the Innertube response.
 type captionTrack struct {
