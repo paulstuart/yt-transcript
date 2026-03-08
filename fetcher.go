@@ -35,6 +35,10 @@ var (
 	}
 )
 
+// DebugWriter is the destination for HTTP debug logging when YTT_DEBUG=1.
+// It defaults to os.Stderr and may be reassigned in main() before any requests are made.
+var DebugWriter io.Writer = os.Stderr
+
 func init() {
 	if os.Getenv("YTT_DEBUG") == "1" {
 		httpClient.Transport = &logTransport{Transport: httpClient.Transport}
@@ -48,7 +52,7 @@ type logTransport struct {
 
 func (l *logTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	dumpReq, _ := httputil.DumpRequestOut(req, true)
-	fmt.Fprintf(os.Stderr, "--- Request ---\n%s\n", dumpReq)
+	fmt.Fprintf(DebugWriter, "--- Request ---\n%s\n", dumpReq)
 
 	resp, err := l.Transport.RoundTrip(req)
 	if err != nil {
@@ -56,7 +60,7 @@ func (l *logTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	dumpResp, _ := httputil.DumpResponse(resp, true)
-	fmt.Fprintf(os.Stderr, "--- Response ---\n%s\n", dumpResp)
+	fmt.Fprintf(DebugWriter, "--- Response ---\n%s\n", dumpResp)
 	return resp, nil
 }
 
