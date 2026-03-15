@@ -3,6 +3,8 @@ package channels
 import (
 	"context"
 	"time"
+
+	yttranscript "github.com/paulstuart/yt-transcript"
 )
 
 // Video holds the metadata for a single YouTube video.
@@ -24,7 +26,17 @@ type Channel struct {
 	Name   string
 }
 
-// Repository defines storage operations for channel videos.
+// Transcript holds the full transcript for a video.
+type Transcript struct {
+	VideoID     string
+	Lang        string
+	IsGenerated bool
+	Text        string                    // plain joined text (smooshed)
+	Lines       []yttranscript.TranscriptLine // timestamped segments
+	FetchedAt   time.Time
+}
+
+// Repository defines storage operations for channel videos and transcripts.
 type Repository interface {
 	// UpsertChannel inserts or updates a channel record.
 	UpsertChannel(ctx context.Context, ch Channel) error
@@ -37,6 +49,23 @@ type Repository interface {
 
 	// GetVideo returns a single video by ID, or ErrNotFound if absent.
 	GetVideo(ctx context.Context, videoID string) (Video, error)
+
+	// GetChannel returns a channel by its UCxxx ID, or ErrNotFound if absent.
+	GetChannel(ctx context.Context, channelID string) (Channel, error)
+
+	// FindChannelByHandle returns a channel matching handle or name (case-insensitive),
+	// or ErrNotFound if absent.
+	FindChannelByHandle(ctx context.Context, handle string) (Channel, error)
+
+	// UpsertTranscript inserts or updates a transcript record.
+	UpsertTranscript(ctx context.Context, t Transcript) error
+
+	// GetTranscript returns the transcript for a video, or ErrNotFound if absent.
+	GetTranscript(ctx context.Context, videoID string) (Transcript, error)
+
+	// ListVideosMissingTranscripts returns up to limit videos for channelID
+	// that have no transcript row yet.
+	ListVideosMissingTranscripts(ctx context.Context, channelID string, limit int) ([]Video, error)
 
 	// Close releases any held resources.
 	Close() error
