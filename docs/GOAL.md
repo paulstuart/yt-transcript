@@ -1,23 +1,62 @@
-# The point of this whole thing
+# Project Goal
 
-The overarching goal for this project is to gather lessons and information shared in video format to be condensed to text, summarized and gathered, as a kind of meta TL;DR;
+The overarching goal is to gather lessons and information shared in video format, condense them to text, summarize them, and index the whole as a kind of personal meta-TL;DR knowledge base.
 
-There are many channels with a wealth of information on one simply doesn't have the time to watch them all. So instead:
+Many channels contain a wealth of information that one simply doesn't have the time to watch in full. So instead:
 
-* Identify all the videos of each channel of interest
-* Gather their transcripts for what they have to say
-* Condense them individually for concise readability
-* Index the whole of the text and summaries to provide high level view into all the information from all the channels of interest -- basically a personal assistant for managing information of interest
+- Identify all the videos of each channel of interest
+- Gather their transcripts
+- Condense each individually for concise readability
+- Index the whole — transcripts, summaries, and keywords — to provide a high-level view across all channels: basically a personal assistant for managing information of interest
 
-## Approach
+## Philosophy
 
-We want to follow the unix philosophy when best able, so that each unit of functionality used is as simple, robust and easy to reason about as possible. Taking that philosophy forward is how one can compose multiple small single focused command line tools into a powerful data workflow
+Follow the Unix philosophy wherever possible: each unit of functionality should be simple, robust, and easy to reason about. Composing small, single-focused command-line tools into a data pipeline is how you build a powerful and maintainable workflow.
 
-This repo is only about capturing the transcript from a specific YT video. More tools needed:
+Each part of the pipeline is planned here but will live in its own repo.
 
-* A "channel vaccum" that monitors all videos of a channel and ensures that each them is captured into the transcript store.
-* A transcript digester: stores all transcripts with associated metadata, summarizes them, generates keywords for all of them, and then gathers them all into a database for further analysis (likely sqlite w/ FTS and vector embedding)
-* A UI for the digester that allows browsing and interacting with the results
-* A meta agent that analyzes all of the captured info and analysis and acts as the personal assistant to the user to share with the user only the inforation they want and should be paying attention to.
+## Pipeline Overview
 
-NOTE: all of this is basically the goal for the github.com/paulstuart/healthweb project -- but it was too unwieldy and we want to try again following the strategy laid out here.
+This repo (`yt-transcript`) handles only step one: capturing the transcript from a single YouTube video. The full pipeline requires four additional tools, each in its own repo:
+
+| Step | Repo | Purpose |
+| --- | --- | --- |
+| 1 | `yt-transcript` (this repo) | Fetch transcript from a single video |
+| 2 | `yt-channel` | Vacuum all videos from a channel into the transcript store |
+| 3 | `yt-digest` | Summarize, keyword-index, and store transcripts in SQLite |
+| 4 | `yt-ui` | Browser UI for searching and browsing the digest |
+| 5 | `yt-agent` | Meta agent: personal assistant over the full knowledge base |
+
+## Sub-Projects
+
+### 1. yt-transcript (this repo) — Status: Working
+
+Fetches a transcript from a single YouTube video by ID or URL. Outputs raw timed segments or a processed "smooshed" text block. Pure Go, no external dependencies.
+
+### 2. yt-channel — Channel Vacuum
+
+Monitors all videos of one or more channels and ensures each transcript is captured into the transcript store. Tracks which videos have been seen and processed, handles pagination, and runs on a schedule or on demand.
+
+See: [PLAN_channel_vacuum.md](PLAN_channel_vacuum.md)
+
+### 3. yt-digest — Transcript Digester
+
+Stores all transcripts with associated metadata, generates summaries and keywords for each, and loads everything into a SQLite database with FTS and vector embeddings for further analysis.
+
+See: [PLAN_transcript_digester.md](PLAN_transcript_digester.md)
+
+### 4. yt-ui — Digester UI
+
+A browser-based interface for the digester database. Supports full-text search, filtering by channel, topic, and date, and reading individual summaries or full transcripts.
+
+See: [PLAN_digester_ui.md](PLAN_digester_ui.md)
+
+### 5. yt-agent — Meta Agent
+
+Analyzes all captured content and acts as a personal assistant — surfacing only what the user should be paying attention to, generating personalized digests, and answering questions across the full knowledge base.
+
+See: [PLAN_meta_agent.md](PLAN_meta_agent.md)
+
+## Prior Art
+
+This goal was the original intent of `github.com/paulstuart/healthweb`, which became too unwieldy. This pipeline approach is the restart, designed to stay focused and composable.

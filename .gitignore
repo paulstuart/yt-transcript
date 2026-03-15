@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+bin/
 
 # Binaries
 yttranscript
@@ -33,3 +34,14 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# database stuff
+*.db
+*.db-shm
+*.db-wal
+
+# cruft
+*.bak
+*.diff
+.DS_Store
+
